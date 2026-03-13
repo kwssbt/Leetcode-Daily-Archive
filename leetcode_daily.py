@@ -55,7 +55,7 @@ async def run_task():
 
 **题目难度：{res['difficulty']}** 
 
-![题目描述](./{i_n})
+[查看PDF题面](./{i_n})
 
 ---
 
