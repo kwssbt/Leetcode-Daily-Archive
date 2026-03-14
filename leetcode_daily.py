@@ -92,6 +92,8 @@ async def run_task():
 
 ---
 
+[每日一题记录](https://github.com/kwssbt/Leetcode-daily-question)
+
 """
     if not os.path.exists(md_path):
         with open(md_path, "w", encoding="utf-8") as f: 
