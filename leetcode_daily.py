@@ -32,14 +32,13 @@ async def run_task():
         print(f"❌ 数据抓取错误: {e}")
         sys.exit(1)
 
-    # 2. 文件夹与路径逻辑 (确保按日期独立存放)
+    # 2. 文件夹与路径逻辑
     today = datetime.date.today().strftime("%Y-%m-%d")
     folder_path = today
     
     if not os.path.exists(folder_path): 
         os.makedirs(folder_path)
 
-    # 定义文件名
     pdf_name = f"{today}.pdf"
     img_name = f"{today}.png"
     md_name = f"{today}.md"
@@ -54,7 +53,6 @@ async def run_task():
         browser = await p.chromium.launch()
         page = await browser.new_page()
         
-        # 极简专业 PDF 样式
         style = """<style>
             body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif;padding:30px;line-height:1.6;color:#1a1a1a;background:white;}
             h1{font-size:22px;margin-bottom:8px;font-weight:600;color:#000;border-bottom:1px solid #ddd;padding-bottom:8px;}
@@ -67,7 +65,6 @@ async def run_task():
             th{background:#fafafa;font-weight:600;}
         </style>"""
         
-        # 仅保留核心信息：题号. 标题 和 难度
         html_content = f"""
         <html>
         <head><meta charset='UTF-8'>{style}</head>
@@ -80,15 +77,13 @@ async def run_task():
         """
         
         await page.set_content(html_content)
-        await asyncio.sleep(1) # 等待渲染
+        await asyncio.sleep(1) 
         
-        # 写入文件
         await page.pdf(path=pdf_path, format="A4", margin={"top":"1.2cm","bottom":"1.2cm","left":"1.2cm","right":"1.2cm"})
         await page.screenshot(path=img_path, full_page=True)
         await browser.close()
 
     # 4. 生成 Markdown 笔记模板
-    # 注意：{{ }} 是为了在 f-string 中正确输出 C++ 所需的 { }
     md_tpl = f"""# [{res['questionFrontendId']}. {res['translatedTitle']}](https://leetcode.cn/problems/{slug}/)
 
 **{today}**
@@ -115,30 +110,36 @@ async def run_task():
 ---
 
 """
-    
-    # 防覆盖：只有在文件不存在时才写入，保护已有的刷题笔记
     if not os.path.exists(md_path):
         with open(md_path, "w", encoding="utf-8") as f: 
             f.write(md_tpl)
 
-    # 5. 更新自动目录 README.md
-    print("📝 正在更新 README.md 索引...")
+    # 5. 更新 README.md (最新日期排在最上面)
+    print("📝 正在更新 README.md (倒序排列)...")
     readme_path = "README.md"
-    new_entry = f"| {today} | [{res['questionFrontendId']}. {res['translatedTitle']}](./{folder_path}/{md_name}) | {res['difficulty']} | [PDF](./{folder_path}/{pdf_name}) |\n"
+    header = "# LeetCode 每日一题记录\n\n| 日期 | 题目 | 难度 | 附件 |\n| :--- | :--- | :--- | :--- |\n"
+    new_entry = f"| {today} | [{res['questionFrontendId']}. {res['translatedTitle']}](./{folder_path}/{md_name}) | {res['difficulty']} | [PDF](./{folder_path}/{pdf_name}) |"
     
-    if not os.path.exists(readme_path):
-        with open(readme_path, "w", encoding="utf-8") as f:
-            f.write("# LeetCode 每日一题记录\n\n| 日期 | 题目 | 难度 | 附件 |\n| :--- | :--- | :--- | :--- |\n")
+    existing_rows = []
+    if os.path.exists(readme_path):
+        with open(readme_path, "r", encoding="utf-8") as f:
+            lines = f.readlines()
+            # 如果今天已经记录过了，直接退出，不重复操作
+            if any(today in line for line in lines):
+                print(f"✅ 今日题目 {today} 已经存在于目录中。")
+                return
+            # 提取现有的数据行（跳过前 4 行表头）
+            existing_rows = [line.strip() for line in lines if line.startswith("|") and ":---" not in line]
+
+    # 将新行放在第一位，后面接旧行
+    all_rows = [new_entry] + existing_rows
     
-    with open(readme_path, "r", encoding="utf-8") as f:
-        readme_content = f.read()
-    
-    # 避免重复追加同一天的题目
-    if today not in readme_content:
-        with open(readme_path, "a", encoding="utf-8") as f:
-            f.write(new_entry)
+    with open(readme_path, "w", encoding="utf-8") as f:
+        f.write(header)
+        for row in all_rows:
+            f.write(row + "\n")
             
-    print(f"🎉 任务完美结束! 存放路径: {folder_path}/")
+    print(f"🎉 任务完美结束! 目录已更新，最新题目已置顶。")
 
 if __name__ == "__main__":
     asyncio.run(run_task())
