@@ -32,12 +32,18 @@ async def run_task():
 
     # 2. 文件夹与路径逻辑
     today = datetime.date.today().strftime("%Y-%m-%d")
-    folder_path = today
-    if not os.path.exists(folder_path): 
-        os.makedirs(folder_path)
+    year = today[:4]
+    month = today[5:7]
+    
+    # 构建嵌套文件夹路径: YYYY/MM/YYYY-MM-DD
+    folder_path = os.path.join(year, month, today)
+    # 使用 exist_ok=True 避免由于目录已存在导致报错
+    os.makedirs(folder_path, exist_ok=True)
 
     pdf_name, img_name, md_name = f"{today}.pdf", f"{today}.png", f"{today}.md"
-    pdf_path, img_path, md_path = os.path.join(folder_path, pdf_name), os.path.join(folder_path, img_name), os.path.join(folder_path, md_name)
+    pdf_path = os.path.join(folder_path, pdf_name)
+    img_path = os.path.join(folder_path, img_name)
+    md_path = os.path.join(folder_path, md_name)
     
     # 3. 使用 Playwright 生成文档 (加入备选字体族)
     print(f"📄 正在生成文档至目录: {folder_path}/ ...")
@@ -99,37 +105,57 @@ async def run_task():
         with open(md_path, "w", encoding="utf-8") as f: 
             f.write(md_tpl)
 
-    # 5. 更新 README.md (最新日期排在最上面，且表头仅保留一份)
-    print("📝 正在更新 README.md (优化表格结构)...")
+    # 5. 更新 README.md (按年月分类动态生成)
+    print("📝 正在更新 README.md (按年月分类重构)...")
     readme_path = "README.md"
-    header = "# LeetCode 每日一题记录\n\n| 日期 | 题目 | 难度 | 附件 |\n| :--- | :--- | :--- | :--- |\n"
-    new_entry = f"| {today} | [{res['questionFrontendId']}. {res['translatedTitle']}](./{folder_path}/{md_name}) | {res['difficulty']} | [PDF](./{folder_path}/{pdf_name}) |"
     
-    existing_rows = []
+    # 提取历史记录
+    records = {}
     if os.path.exists(readme_path):
         with open(readme_path, "r", encoding="utf-8") as f:
-            lines = f.readlines()
-            # 1. 如果今天已经记录过了，直接退出，防止 Actions 报错或重复插入
-            if any(today in line for line in lines):
-                print(f"✅ 今日题目 {today} 已经存在于目录中。")
-                return
-            
-            # 2. 核心修复：只保留真正包含日期的数据行
-            # 我们过滤掉标题、空行、以及包含 "日期" 或 "---" 的表头行
-            for line in lines:
+            for line in f:
                 line = line.strip()
+                # 识别有效的表格数据行
                 if line.startswith("|") and "日期" not in line and ":---" not in line:
-                    existing_rows.append(line)
+                    parts = line.split("|")
+                    if len(parts) > 2:
+                        date_key = parts[1].strip()
+                        records[date_key] = line
 
-    # 3. 将新行置顶，重新组合
-    all_rows = [new_entry] + existing_rows
-    
+    # 写入今日新数据 (使用带有年月的新路径格式)
+    new_entry = f"| {today} | [{res['questionFrontendId']}. {res['translatedTitle']}](./{folder_path}/{md_name}) | {res['difficulty']} | [PDF](./{folder_path}/{pdf_name}) |"
+    records[today] = new_entry
+
+    # 将所有日期降序排列
+    sorted_dates = sorted(records.keys(), reverse=True)
+
+    # 重新生成带层级的 README.md
     with open(readme_path, "w", encoding="utf-8") as f:
-        f.write(header)
-        for row in all_rows:
-            f.write(row + "\n")
+        f.write("# LeetCode 每日一题记录\n\n")
+        
+        current_year = ""
+        current_month = ""
+        
+        for d in sorted_dates:
+            y, m, _ = d.split("-")
             
-    print(f"🎉 目录已重构，表头已精简，最新题目已置顶。")
+            # 跨年时，生成二级标题
+            if y != current_year:
+                current_year = y
+                f.write(f"## {current_year}年\n\n")
+                current_month = "" # 强制跨月逻辑触发
+                
+            # 跨月时，生成三级标题和表头
+            if m != current_month:
+                current_month = m
+                f.write(f"### {current_month}月\n\n")
+                f.write("| 日期 | 题目 | 难度 | 附件 |\n")
+                f.write("| :--- | :--- | :--- | :--- |\n")
+                
+            # 写入题目数据行
+            f.write(records[d] + "\n")
+            
+    print(f"🎉 目录已按年月分类重构完毕，最新题目已置顶。")
 
 if __name__ == "__main__":
     asyncio.run(run_task())
