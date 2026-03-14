@@ -1,35 +1,62 @@
-import requests, html2text, datetime, asyncio, sys, os; from playwright.async_api import async_playwright
+import requests
+import datetime
+import asyncio
+import sys
+import os
+from playwright.async_api import async_playwright
 
 async def run_task():
+    print("🚀 开始抓取 LeetCode 每日一题...")
+    
     # 1. 抓取数据
-    gql, hd = "https://leetcode.cn/graphql", {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-        "Content-Type": "application/json",
-        "Accept-Language": "zh-CN,zh;q=0.9"
+    gql_url = "https://leetcode.cn/graphql"
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36", 
+        "Content-Type": "application/json", 
+        "Accept-Language": "zh-CN"
     }
+    
     try:
-        s_q = {"query": "query { todayRecord { question { questionTitleSlug } } }"}
-        slug = requests.post(gql, json=s_q, headers=hd).json()['data']['todayRecord'][0]['question']['questionTitleSlug']
-        d_q = {"query": "query q($s:String!){question(titleSlug:$s){questionFrontendId translatedTitle translatedContent difficulty}}", "variables": {"s": slug}}
-        res = requests.post(gql, json=d_q, headers=hd).json()['data']['question']
-    except Exception as e: print(f"❌ 数据抓取错误: {e}"); sys.exit(1)
+        # 获取今日题目的 slug
+        slug_query = {"query": "query { todayRecord { question { questionTitleSlug } } }"}
+        slug_res = requests.post(gql_url, json=slug_query, headers=headers).json()
+        slug = slug_res['data']['todayRecord'][0]['question']['questionTitleSlug']
+        
+        # 获取题目的详细信息
+        detail_query = {
+            "query": "query q($s:String!){question(titleSlug:$s){questionFrontendId translatedTitle translatedContent difficulty}}", 
+            "variables": {"s": slug}
+        }
+        res = requests.post(gql_url, json=detail_query, headers=headers).json()['data']['question']
+    except Exception as e: 
+        print(f"❌ 数据抓取错误: {e}")
+        sys.exit(1)
 
-    # 创建文件夹逻辑
+    # 2. 文件夹与路径逻辑 (确保按日期独立存放)
     today = datetime.date.today().strftime("%Y-%m-%d")
     folder_path = today
-    if not os.path.exists(folder_path):
+    
+    if not os.path.exists(folder_path): 
         os.makedirs(folder_path)
 
-    # 定义文件路径 (全部放在文件夹内)
-    p_n, i_n, m_n = f"{today}.pdf", f"{today}.png", f"{today}.md"
-    p_path, i_path, m_path = os.path.join(folder_path, p_n), os.path.join(folder_path, i_n), os.path.join(folder_path, m_n)
+    # 定义文件名
+    pdf_name = f"{today}.pdf"
+    img_name = f"{today}.png"
+    md_name = f"{today}.md"
     
-    # 2. 生成极简 PDF 和 图片
+    pdf_path = os.path.join(folder_path, pdf_name)
+    img_path = os.path.join(folder_path, img_name)
+    md_path = os.path.join(folder_path, md_name)
+    
+    # 3. 使用 Playwright 生成文档
+    print(f"📄 正在生成文档至目录: {folder_path}/ ...")
     async with async_playwright() as p:
         browser = await p.chromium.launch()
         page = await browser.new_page()
+        
+        # 极简专业 PDF 样式
         style = """<style>
-            body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif;padding:30px;line-height:1.5;color:#1a1a1a;background:white;}
+            body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif;padding:30px;line-height:1.6;color:#1a1a1a;background:white;}
             h1{font-size:22px;margin-bottom:8px;font-weight:600;color:#000;border-bottom:1px solid #ddd;padding-bottom:8px;}
             .meta{font-size:13px;color:#666;margin-bottom:20px;}
             pre{background:#f8f8f8;padding:12px;border-radius:4px;border:1px solid #eee;overflow-x:auto;font-size:13px;}
@@ -39,27 +66,41 @@ async def run_task():
             th,td{border:1px solid #eee;padding:10px;text-align:left;}
             th{background:#fafafa;font-weight:600;}
         </style>"""
-        html = f"<html><head><meta charset='UTF-8'>{style}</head><body><h1>{res['questionFrontendId']}. {res['translatedTitle']}</h1><div class='meta'>难度: <b>{res['difficulty']}</b></div><div class='content'>{res['translatedContent']}</div></body></html>"
         
-        await page.set_content(html)
-        await asyncio.sleep(1) 
-        # 写入文件到指定文件夹
-        await page.pdf(path=p_path, format="A4", margin={"top":"1.2cm","bottom":"1.2cm","left":"1.2cm","right":"1.2cm"})
-        await page.screenshot(path=i_path, full_page=True)
+        # 仅保留核心信息：题号. 标题 和 难度
+        html_content = f"""
+        <html>
+        <head><meta charset='UTF-8'>{style}</head>
+        <body>
+            <h1>{res['questionFrontendId']}. {res['translatedTitle']}</h1>
+            <div class='meta'>难度: <b>{res['difficulty']}</b></div>
+            <div>{res['translatedContent']}</div>
+        </body>
+        </html>
+        """
+        
+        await page.set_content(html_content)
+        await asyncio.sleep(1) # 等待渲染
+        
+        # 写入文件
+        await page.pdf(path=pdf_path, format="A4", margin={"top":"1.2cm","bottom":"1.2cm","left":"1.2cm","right":"1.2cm"})
+        await page.screenshot(path=img_path, full_page=True)
         await browser.close()
 
-    # 3. 生成 Markdown 模板
+    # 4. 生成 Markdown 笔记模板
+    # 注意：{{ }} 是为了在 f-string 中正确输出 C++ 所需的 { }
     md_tpl = f"""# [{res['questionFrontendId']}. {res['translatedTitle']}](https://leetcode.cn/problems/{slug}/)
 
 **{today}**
 
-**题目难度：{res['difficulty']}** 
+**题面难度：{res['difficulty']}** 
 
-[查看PDF题面](./{i_n})
+[查看PDF题面](./{img_name})
 
 ---
 
-## 思路 
+## 
+
 
 ---
 
@@ -74,25 +115,30 @@ async def run_task():
 ---
 
 """
-    with open(m_path, "w", encoding="utf-8") as f: f.write(md_tpl)
+    
+    # 防覆盖：只有在文件不存在时才写入，保护已有的刷题笔记
+    if not os.path.exists(md_path):
+        with open(md_path, "w", encoding="utf-8") as f: 
+            f.write(md_tpl)
 
-    # 4. 更新自动目录 (README.md)
+    # 5. 更新自动目录 README.md
+    print("📝 正在更新 README.md 索引...")
     readme_path = "README.md"
-    new_entry = f"| {today} | [{res['questionFrontendId']}. {res['translatedTitle']}](./{folder_path}/{m_n}) | {res['difficulty']} | [PDF](./{folder_path}/{p_n}) |\n"
+    new_entry = f"| {today} | [{res['questionFrontendId']}. {res['translatedTitle']}](./{folder_path}/{md_name}) | {res['difficulty']} | [PDF](./{folder_path}/{pdf_name}) |\n"
     
     if not os.path.exists(readme_path):
         with open(readme_path, "w", encoding="utf-8") as f:
             f.write("# LeetCode 每日一题记录\n\n| 日期 | 题目 | 难度 | 附件 |\n| :--- | :--- | :--- | :--- |\n")
     
     with open(readme_path, "r", encoding="utf-8") as f:
-        content = f.readlines()
+        readme_content = f.read()
     
-    # 检查是否已经存在该日期的记录，不存在则追加
-    if not any(today in line for line in content):
+    # 避免重复追加同一天的题目
+    if today not in readme_content:
         with open(readme_path, "a", encoding="utf-8") as f:
             f.write(new_entry)
-
-    print(f"🎉 成功! 所有文件已放入目录: {folder_path}/ 并更新了目录 README.md")
+            
+    print(f"🎉 任务完美结束! 存放路径: {folder_path}/")
 
 if __name__ == "__main__":
     asyncio.run(run_task())
